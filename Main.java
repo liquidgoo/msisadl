@@ -3,6 +3,8 @@ package com.company;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.regex.*;
 import java.util.HashSet;
 
@@ -164,7 +166,7 @@ public class Main {
                 "\n" +
                 "\n" +
                 "    public static void main(String[] args) {\n" +
-                "\n" +
+                "  \n" +
                 "        //Создаем двусвязный неотсортированный список\n" +
                 "        DoubleLinkedList list = new DoubleLinkedList()\n" +
                 "        int N = -1\n" +
@@ -174,7 +176,7 @@ public class Main {
                 "                System.out.println(\"Введите кол-во телефонных номеров в двунаправленном неупорядоченном списке:\")\n" +
                 "                N = Integer.valueOf(cs.nextLine())\n" +
                 "                if (N <= 0) throw new InputMismatchException()\n" +
-                "            } catch (InputMismatchException | NumberFormatException e) {\n" +
+                "            } catch (Exception e) {\n" +
                 "                System.out.println(\"Повторите ввод!\")\n" +
                 "            }\n" +
                 "        }\n" +
@@ -202,12 +204,13 @@ public class Main {
                 "        ordList.show()\n" +
                 "    }\n" +
                 "}\n";
-
+        final String id = "[A-z[\\\\u00C0-\\\\u00D6[\\\\u00D8-\\\\u00F6[\\\\u00F8-\\\\u00FF[\\\\u0100-\\\\uFFFE]]]]]+";
         //Множество операндов
-        HashSet<String> operands = new HashSet<>();
+        HashMap<String, Integer> operands = new HashMap<>();
         //Множество операторов
-        HashSet<String> operators = new HashSet<>();
-
+        HashMap<String, Integer> operators = new LinkedHashMap<>();
+        //Множество ключевых слов
+        HashSet<String> keyWords = new HashSet<>();
         //Biba - это строка с кодом программы целиком
 
         //Здесь мы избавляемся от всех комментариев в коде программы
@@ -217,27 +220,31 @@ public class Main {
         Matcher m = Pattern.compile("\"(?:\\\\\"|[^\"])*?\"").matcher(biba);
         while (m.find()) {
             //Каждый строковы    литерал ммы добавляем в множество операндов
-            operands.add(m.group());
+            //operands.put(m.group());
+            String buf = m.group();
+            if (!operands.containsKey(buf)) {
+                operands.put(buf, 1);
+            } else {
+                operands.put(buf, operands.get(buf) + 1);
+            }
         }
 
 
         //Теперь в исходном коде программы мы удаляем все строковые литералы
         biba = biba.replaceAll("\"(?:\\\\\"|[^\"])*?\"", "");
 
-
-        //Из файла считываем все основые операнды
-        Files.lines(Paths.get("ops.txt")).forEach(line -> operators.add(line));
+        //Из файла считываем все основые операторы и ключ слова
+        Files.lines(Paths.get("keyWords.txt")).forEach(line -> keyWords.add(line));
+        Files.lines(Paths.get("operators.txt")).forEach(line -> operators.put(line, 0));
 
 
         //Сюда будем класть "обрезанные методы"
-        HashSet<String> methods = new HashSet<>();
-
-        //Кол-во всех-всех встреченных методов (не вызовов!!!!)
-        int allMethodsCount = 0;
+        HashMap<String, Integer> methods = new HashMap<>();
+        Files.lines(Paths.get("operators2.0.txt")).forEach(line -> methods.put(line, 0));
 
 
         //Устанавливаем шаблон дл поиска методов
-        m = Pattern.compile("[A-z[\\\\u00C0-\\\\u00D6[\\\\u00D8-\\\\u00F6[\\\\u00F8-\\\\u00FF[\\\\u0100-\\\\uFFFE]]]]]+[\\s\n]*\\(.*\\)[\\s\n]+\\{")
+        m = Pattern.compile(id + "[\\s]*\\(.*\\)[\\s]*\\{")
                 .matcher(biba);
 
         //Покуда встречается "необрезанный" метод
@@ -245,17 +252,81 @@ public class Main {
             //Берем очередной необрезанный метод
             String match = m.group();
             //Извлекаем идентификатор метода
-            String newMatch = match.split("[\\s\n\\(]")[0];
-            if (!operators.contains(newMatch)) {
+            String newMatch = match.split("[\\s\\(]")[0];
+            if (!(operators.containsKey(newMatch) || keyWords.contains(newMatch))) {
                 //Если не было, то добавляем (костыль от switch, if and so fourth...)
-                methods.add(newMatch);
-                allMethodsCount++;
+                if (!methods.containsKey(newMatch))
+                    methods.put(newMatch, 0);
+            }
+        }
+
+        //Добавление пробелов перед и после скобок, замена кучи пробелов одним
+        biba = biba.replace("(", "( ").replace(")", " )").replaceAll(" +", " ");
+
+        //Удаление классов(типов)
+        String[] lines = biba.split("\\n");
+        for (String line : lines) {
+            String[] words = line.split(" +");
+            for (int i = 0; i < words.length - 1; i++) {
+                if (words[i].matches(id) && words[i + 1].matches(id) && !(keyWords.contains(words[i]) || operators.containsKey(words[i]) || keyWords.contains(words[i + 1]) || operators.containsKey(words[i + 1]))) {
+                    biba = biba.replace(words[i] + " " + words[i + 1], words[i + 1]);
+                }
+            }
+        }
+        //Удаление классов(объявление)
+        biba = biba.replaceAll("class\\s+" + id + "\\s+[{]", " ");
+
+
+        //Подсчет и удаление методов и управляющих операторов(все что со скобочками)
+        StringBuilder sb = new StringBuilder(biba);
+        Pattern p = Pattern.compile(id + "\\s*" + "[(]");
+        m = p.matcher(sb);
+        while (m.find()) {
+            //Получаем имя метода/оператора
+            String match = m.group().split("[\\s(]+")[0];
+            if (methods.containsKey(match)) {
+                int i = methods.get(match);
+                methods.put(match, i + 1);
+            } else {
+                methods.put(match, 1);
+            }
+            //Удаление
+            sb.delete(m.start(), m.end());
+            m = p.matcher(sb);
+        }
+
+        //Подсчет и удаление оставшихся операторов
+        for (String op : operators.keySet()) {
+            int start = sb.indexOf(op);
+            while (start != -1) {
+                operators.put(op, operators.get(op) + 1);
+                sb.replace(start, start + op.length(), " ");
+                start = sb.indexOf(op);
+            }
+        }
+
+
+        biba = sb.toString().trim();
+
+
+        //Удаление ключ слов(почти)
+        for (String keyWord : keyWords) {
+            biba = biba.replaceAll("\\s+" + keyWord + "\\s+", " ");
+        }
+
+        //Подсчет оставшихся операндов
+        String[] ops = biba.split("\\s+");
+        for (String operand : ops) {
+            if (operands.containsKey(operand)) {
+                operands.put(operand, operands.get(operand) + 1);
+            } else {
+                operands.put(operand, 1);
             }
         }
 
 
         System.out.println(operands);
         System.out.println(methods);
-        System.out.println(allMethodsCount);
+        System.out.println(operators);
     }
 }
